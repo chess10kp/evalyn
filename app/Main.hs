@@ -1,10 +1,11 @@
 module Main where
 
-import Control.Monad
 import Text.ParserCombinators.Parsec hiding (spaces)
+import Prelude hiding (head) 
 import System.Environment (getArgs)
-import Numeric (readFloat, readHex, readOct, readBin)
-import Data.Maybe (listToMaybe, isNothing, fromJust)
+import Numeric (readHex, readOct, readBin)
+import Data.Maybe (listToMaybe )
+import Control.Monad (liftM)
 
 symbol :: Parser Char
 symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
@@ -37,31 +38,61 @@ parseAtom = do
              _    -> Atom atom
 
 parseNumber :: Parser LispVal
--- parseNumber = liftM (Number . read) $ many1 digit
+-- parseNumber needs to check for both Float and Int
 parseNumber = do
-  _ <- oneOf "#"
-  base <- oneOf "bodx"
-  digits <- many1 digit
-  return $ Number (val base digits)
-    where
-      val :: Char -> String -> Integer
-      val base digits = output
-        where
-          output :: Integer
-          output
-                | Just (x,_) <- maybeOutput = x
-                | otherwise = error "Invalid number format"
-                where
-                  maybeOutput :: Maybe (Integer, String)
-                  maybeOutput = 
-                        case base of  
-                            'o' ->  listToMaybe $ readOct digits
-                            _ ->  read digits
+        many1 digit >>= \x -> return (Number . read $ x)
 
+-- parsePrefixedNumber :: Parser LispVal
+-- parsePrefixedNumber = do
+--             _ <- oneOf "#"
+--             base <- oneOf "bodx"
+--             digits <- many1 digit
+--             return $ Number $ val base digits
+--                 where
+--                 val :: Char -> String -> Integer
+--                 val base digits 
+--                         | Just (x,_) <- maybeOutput = x
+--                         | otherwise = error "Invalid number format"
+--                         where
+--                             maybeOutput = 
+--                                 case base of  
+--                                     'o' ->  listToMaybe $ readOct digits
+--                                     'x' ->  listToMaybe $ readHex digits
+--                                     'b' ->  listToMaybe $ readBin digits
+--                                     _ ->  read digits
+
+
+parseFloat :: Parser LispVal
+parseFloat = do
+  x <- many1 digit
+  _ <- char '.'
+  y <- many1 digit
+  return $ Float $ read $ x ++ "." ++ y
+
+parseList :: Parser LispVal
+parseList = liftM List $ sepBy parseExpr spaces
+
+parseDottedList :: Parser LispVal
+parseDottedList = do
+  head <- endBy parseExpr spaces
+  tail <- char '.' >> spaces >> parseExpr
+  return $ DottedList head tail
+
+parseQuoted :: Parser LispVal
+parseQuoted = do
+  char '\''
+  x <- parseExpr
+  return $ List [Atom "quote", x]
+  
 parseExpr :: Parser LispVal
 parseExpr = parseAtom
             <|> parseString
             <|> parseNumber
+            <|> parseQuoted
+            <|> do char '('
+                   x <- try parseList <|> parseDottedList
+                   char ')'
+                   return x
 
 
 readExpr :: String -> String
