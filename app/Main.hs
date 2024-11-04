@@ -1,7 +1,6 @@
 module Main where
 
 import Text.ParserCombinators.Parsec hiding (spaces)
-import Prelude hiding (head) 
 import System.Environment (getArgs)
 import Numeric (readHex, readOct, readBin)
 import Data.Maybe (listToMaybe )
@@ -98,8 +97,31 @@ parseExpr = parseAtom
 readExpr :: String -> String
 readExpr input = case parse parseExpr "lisp" input of
   Left err -> "No match: " ++ show err
-  Right _ -> "Found value"
+  Right val -> val
 
+-- display values
+showVal :: LispVal -> String
+showVal (String contents) = "\"" ++ contents  ++ "\""
+showVal (Atom name) = name
+showVal (Number contents) = show contents
+showVal (Bool True) = "#t"
+showVal (Bool False) = "#f"
+
+showVal (List contents) = "(" ++ unwordsList  contents ++ ")"
+showVal (DottedList head tail) = "(" ++ unwordsList  head ++ "." ++ showVal tail ++ ")"
+
+unwordsList :: [LispVal] -> String
+unwordsList = unwords . map showVal
+
+eval :: LispVal -> LispVal
+eval val@(String _) = val
+eval val@(Number _) = val
+eval val@(Bool _) = val
+eval (List [Atom "quote", val]) = val
+
+
+
+instance Show LispVal where show = showVal
 
 data LispVal =
   Atom String
@@ -112,8 +134,4 @@ data LispVal =
   | Bool Bool
   
 main  :: IO ()
-main = do
-  (expr:_) <- getArgs
-  putStrLn (readExpr expr)
-
-  
+main = getArgs >>= print . eval . readExpr . head  
