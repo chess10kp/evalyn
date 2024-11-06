@@ -40,7 +40,7 @@ parseChar = do
 parseString :: Parser LispVal
 parseString = do
     _ <- char '"'
-    x <- many ( oneOf "\\\"" <|> noneOf "\"")
+    x <- many ( tab <|> newline <|> noneOf "\"") -- TODO: implement escaping
     _ <- char '"'
     return $ String x
 
@@ -100,7 +100,28 @@ parseQuoted = do
   _ <- char '\''
   x <- parseExpr
   return $ List [Atom "quote", x]
-  
+
+car :: [LispVal] -> ThrowsError LispVal
+car [List (x:xs)] = return x
+car [DottedList (x:xs) _] = return x
+car [nonList] = throwError $ TypeMismatch "pair" nonList
+car nonListArg = car [nonList] = throwError $ NumArgs 1 nonListArg
+
+cdr :: [LispVal] -> ThrowsError LispVal
+cdr [List (x:xs)] = return $ List xs
+cdr [DottedList [_] x] = return x
+cdr [DottedList (_ : xs) x] = return $ DottedList xs x
+cdr [nonList] = throwError $ TypeMismatch "pair" nonList
+cdr nonList = throwError $ NumArgs 1 nonList
+
+cons :: [LispVal] -> ThrowsError LispVal
+cons [x1, List []] = return $ List [x1]
+cons [List [] , List []] = return $ List []
+cons [List (x:[]), List xs] = return $ List x : xs
+cons [x, DottedList xs xlast] = return $ DottedList (x : xs) xlast -- dottedLists remain DottedLists
+cons [x1, x2] = return $ DottedList [x1] x2
+cons badArgs = throwError $ NumArgs 2 badArgs
+
 parseExpr :: Parser LispVal
 parseExpr = parseAtom
             <|> parseString
