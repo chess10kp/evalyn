@@ -1,3 +1,5 @@
+{-# LANGUAGE ExistentialQuantification #-}
+-- to create heterogeneous typeclasses
 module Main where
 
 import Text.ParserCombinators.Parsec hiding (spaces)
@@ -22,6 +24,9 @@ data LispError = NumArgs Integer [LispVal]
                  | NotFunction String String
                  | UnboundVar String String
                  | Default String
+
+                 
+data Unpacker = forall a. Eq a => anyUnpacker (LispVal -> ThrowsError a)
 
 
 symbol :: Parser Char
@@ -108,19 +113,33 @@ car [nonList] = throwError $ TypeMismatch "pair" nonList
 car nonListArg = car [nonList] = throwError $ NumArgs 1 nonListArg
 
 cdr :: [LispVal] -> ThrowsError LispVal
-cdr [List (x:xs)] = return $ List xs
-cdr [DottedList [_] x] = return x
+cdr [List (x:xs)]           = return $ List xs
+cdr [DottedList [_] x]      = return x
 cdr [DottedList (_ : xs) x] = return $ DottedList xs x
-cdr [nonList] = throwError $ TypeMismatch "pair" nonList
-cdr nonList = throwError $ NumArgs 1 nonList
+cdr [nonList]               = throwError $ TypeMismatch "pair" nonList
+cdr nonList                 = throwError $ NumArgs 1 nonList
 
 cons :: [LispVal] -> ThrowsError LispVal
-cons [x1, List []] = return $ List [x1]
-cons [List [] , List []] = return $ List []
-cons [List (x:[]), List xs] = return $ List x : xs
+cons [x1, List []]            = return $ List [x1]
+cons [List [] , List []]      = return $ List []
+cons [List (x:[]), List xs]   = return $ List x : xs
 cons [x, DottedList xs xlast] = return $ DottedList (x : xs) xlast -- dottedLists remain DottedLists
-cons [x1, x2] = return $ DottedList [x1] x2
-cons badArgs = throwError $ NumArgs 2 badArgs
+cons [x1, x2]                 = return $ DottedList [x1] x2
+cons badArgs                  = throwError $ NumArgs 2 badArgs
+
+eqv :: [LispVal] -> ThrowsError LispVal
+eqv [(Bool arg1), (Bool arg2)]             = return $ Bool $ arg1 == arg2
+eqv [(Number arg1), (Number arg2)]         = return $ Bool $ arg1 == arg2
+eqv [(String arg1), (String arg2)]         = return $ Bool $ arg1 == arg2
+eqv [(Atom arg1), (Atom arg2)]             = return $ Bool $ arg1 == arg2
+eqv [(DottedList arg1), (DottedList arg2)] = eqv [List $ xs ++ [x], List $ ys ++ [y]]
+eqv [(List arg1), (List arg2)]             = return $ Bool $ (length arg1 == arg2) && 
+                                                             (all eqvPair $ zip arg1 arg2)
+                                                             where eqvPair (x1, x2) = case eqv [x1,x2] of
+                                                                     Left err -> False
+                                                                     Right (Bool val) -> val
+eqv [_, _] = return $ Bool False
+eqv badArgs = throwError $ NumArgs 2 badArgs
 
 parseExpr :: Parser LispVal
 parseExpr = parseAtom
@@ -134,16 +153,15 @@ parseExpr = parseAtom
 
 -- display values
 showVal :: LispVal -> String
-showVal (String contents) = "\"" ++ contents  ++ "\""
+showVal (String contents)    = "\"" ++ contents  ++ "\""
 showVal (Character contents) = "'" ++ show contents ++ "'"
-showVal (Atom name) = name
-showVal (Number contents) = show contents
-showVal (Bool True) = "#t"
-showVal (Bool False) = "#f"
-showVal (Float contents) = show contents
-
-showVal (List contents) = "(" ++ unwordsList  contents ++ ")"
-showVal (DottedList h t) = "(" ++ unwordsList  h ++ "." ++ showVal t ++ ")"
+showVal (Atom name)          = name
+showVal (Number contents)    = show contents
+showVal (Bool True)          = "#t"
+showVal (Bool False)         = "#f"
+showVal (Float contents)     = show contents
+showVal (List contents)      = "(" ++ unwordsList  contents ++ ")"
+showVal (DottedList h t)     = "(" ++ unwordsList  h ++ "." ++ showVal t ++ ")"
 
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
@@ -199,8 +217,7 @@ primitives = [("+", numericBinop (+)),
               ("string<?", numBoolBinop (<)),
               ("string>?", numBoolBinop (>)),
               ("string>=?", numBoolBinop (>=)),
-              ("string<=?", numBoolBinop (<=))
-             ]
+              ("string<=?", numBoolBinop (<=))]
 
 unpackNum :: LispVal -> ThrowsError Integer
 unpackNum (Number n) = return n   
@@ -251,6 +268,12 @@ instance Show LispError where show = showError
 trapError :: (MonadError e m, Show e) => m String -> m String
 trapError action = catchError action (return . show)
 
+unpackEquals :: LispVal -> LispVal -> Unpacker -> ThrowsError Bool
+unpackEquals arg1 arg2 (AnyUnpacker unpacker) =
+  do unpack1 <- unpacker arg1
+     unpack2 <- unpacker arg2
+     return $ unpacked1 == unpacked2
+   `catchError` (const $ return False)
 
 extractValue :: ThrowsError a -> a
 extractValue (Right val) = val
