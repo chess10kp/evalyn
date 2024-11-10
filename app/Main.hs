@@ -24,6 +24,7 @@ data LispVal = Atom String
              | Bool Bool
              | Func { params :: [String], vararg :: (Maybe String),
                     body :: [LispVal], closure :: Env }
+             | PrimitiveFunc  ([LispVal] -> ThrowsError LispVal)
 
 data LispError = NumArgs Integer [LispVal]
                  | TypeMismatch String LispVal
@@ -170,6 +171,12 @@ showVal (Bool False)         = "#f"
 showVal (Float contents)     = show contents
 showVal (List contents)      = "(" ++ unwordsList  contents ++ ")"
 showVal (DottedList h t)     = "(" ++ unwordsList  h ++ "." ++ showVal t ++ ")"
+showVal (PrimitiveFunc _) = "<primitive>"
+showVal (Func {params = args, vararg = varargs, body = body, closure = env}) = "(lambda (" ++ unwords (map show args) ++
+  (case varargs of
+     Nothing -> ""
+     Just arg -> " . " ++ arg) ++ ") ...)" 
+     )
 
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
