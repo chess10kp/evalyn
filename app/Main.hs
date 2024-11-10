@@ -22,6 +22,8 @@ data LispVal = Atom String
              | Float Float
              | Character Char
              | Bool Bool
+             | Func { params :: [String], vararg :: (Maybe String),
+                    body :: [LispVal], closure :: Env }
 
 data LispError = NumArgs Integer [LispVal]
                  | TypeMismatch String LispVal
@@ -264,7 +266,6 @@ unpackBool notString = throwError $ TypeMismatch "boolean" notString
 -- eval (List (Atom func: args)) = mapM eval args >>= apply func
 -- eval badForm = throwError $ BadSpecialForm "Unrecognized form" badForm
 
-
 eval :: Env -> LispVal -> IOThrowsError LispVal
 eval env val@(String _) = return val
 eval env val@(Number _) = return val
@@ -354,19 +355,21 @@ until_ pred prompt action = do
 runIOThrows :: IOThrowsError String -> IO String
 runIOThrows action = runExceptT (trapError action) >>= return . extractValue
 
-isBound :: Env -> String -> IO Bool -- chck if a var is already bound
-isBound  envRef var = readIORef envRef >>= return . maybe False (const True)
+isBound :: Env -> String -> IO Bool -- check if a var is already bound
+isBound envRef var = readIORef envRef >>= return . maybe False (const True) . lookup var
   
   
 liftThrows :: ThrowsError a -> IOThrowsError a
 liftThrows (Left err) = throwError err
 liftThrows (Right val) = return val
 
+
 getVar :: Env -> String -> IOThrowsError LispVal
 getVar envRef var  =  do env <- liftIO $ readIORef envRef
                          maybe (throwError $ UnboundVar "Getting an unbound variable" var)
                                (liftIO . readIORef)
                                (lookup var env)
+
 
 setVar :: Env -> String -> LispVal -> IOThrowsError LispVal
 setVar envRef var value = do env <- liftIO $ readIORef envRef
@@ -393,24 +396,31 @@ bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
            addBinding (var, value) = do ref <- newIORef value
                                         return (var, ref)
              
-runRepl :: IO ()
-runRepl = until_ (== "quit") (readPrompt "Evalyn>>> ") evalAndPrint
+-- runRepl :: IO ()
+-- runRepl = until_ (== "quit") (readPrompt "Evalyn>>> ") evalAndPrint
 
 
 runOne :: String -> IO ()
 runOne expr = nullEnv >>= flip evalAndPrint expr
 
 runRepl :: IO ()
-runRepl = nullEnv >>= until_ (== "quit") (readPrompt "Lisp>>> ") . evalAndPrint
+runRepl = nullEnv >>= until_ (== "quit") (readPrompt "evalyn>>> ") . evalAndPrint
 
+
+makeFunc varargs env params body = return $ Func (map showVal params) varargs
+makeNormalFunc :: (Monad m0) =>  p -> [LispVal] -> p1 -> m0 ([LispVal] -> Env -> LispVal)
+makeNormalFunc = makeFunc Nothing
+
+makeVarArgs :: (Monad m0) => LispVal -> p -> [LispVal] -> p1 -> m0 ([LispVal] -> Env -> LispVal)
+makeVarArgs = makeFunc . Just . showVal
 
 nullEnv :: IO Env
 nullEnv = newIORef []
 
-main  :: IO ()
+main :: IO ()
 main = do args <- getArgs
           case length args of
-              0 -> runRepl
-              1 -> evalAndPrint $ head args
-              _ -> putStrLn "Program takes only 0 or 1 arguments"
+               0 -> runRepl
+               1 -> runOne $ args !! 0
+               otherwise -> putStrLn "Program takes only 0 or 1 argument"
 
