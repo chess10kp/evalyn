@@ -25,6 +25,8 @@ data LispVal = Atom String
              | Func { params :: [String], vararg :: (Maybe String),
                     body :: [LispVal], closure :: Env }
              | PrimitiveFunc  ([LispVal] -> ThrowsError LispVal)
+             | IO Func ([LispVal] -> IOThrowsError LispVal)
+             | Port Handle
 
 data LispError = NumArgs Integer [LispVal]
                  | TypeMismatch String LispVal
