@@ -257,7 +257,24 @@ primitives = [("+", numericBinop (+)),
               ("cons", cons),
               ("eq?", eqv),
               ("eqv?", eqv),
-              ("equal?", equal)]
+              ("equal?", equal),
+              ("sortiz", qsortiz)]
+
+
+qsortiz :: [LispVal] -> ThrowsError LispVal
+qsortiz [List []]           = return $ List []
+qsortiz [List [x]]          = return $ List [x]
+qsortiz [List (xs)]           = do
+  let numbers = mapM unpackNum xs
+  case numbers of
+    Right nums -> return $ List $ map Number (qsort nums)
+    Left err -> throwError err
+  where
+    qsort :: [Integer] -> [Integer]
+    qsort [] = []
+    qsort (y:ys) = qsort [a | a <- ys, a <= y] ++ [y] ++ qsort [a | a <- ys, a > y]
+qsortiz [badArg] = throwError $ TypeMismatch "list of numbers" badArg
+qsortiz badArg                   = throwError $ TypeMismatch "list" $ String "bad"
 
 unpackNum :: LispVal -> ThrowsError Integer
 unpackNum (Number n) = return n   
@@ -265,7 +282,7 @@ unpackNum (String n) = let parsed = reads n :: [(Integer, String)] in
   if null parsed
   then throwError $ TypeMismatch "number" $ String n
   else
-    return $ fst $ parsed !! 0 
+    return $ fst $ head parsed
 unpackNum (List [n]) = unpackNum n
 unpackNum notNum = throwError $ TypeMismatch "number" notNum
 
@@ -302,7 +319,7 @@ eval env (List [Atom "if", pred, conseq, alt]) =
      do result <- eval env pred
         case result of
              Bool False -> eval env alt
-             otherwise -> eval env conseq
+             _ -> eval env conseq
 eval env (List [Atom "set!", Atom var, form]) =
      eval env form >>= setVar env var
 eval env (List [Atom "define", Atom var, form]) =
