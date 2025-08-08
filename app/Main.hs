@@ -7,6 +7,8 @@ import Data.IORef
 import Text.ParserCombinators.Parsec hiding (spaces)
 import System.Environment (getArgs)
 import Control.Monad.Except
+import Control.Monad (liftM)
+import Control.Monad.IO.Class (liftIO)
 
 type Env = IORef [(String, IORef LispVal)]
 
@@ -22,7 +24,7 @@ data LispVal = Atom String
              | Float Float
              | Character Char
              | Bool Bool
-             | Func { params :: [String], vararg :: (Maybe String),
+             | Func { params :: [String], vararg :: Maybe String,
                     body :: [LispVal], closure :: Env }
              | PrimitiveFunc  ([LispVal] -> ThrowsError LispVal)
              | IOFunc ([LispVal] -> IOThrowsError LispVal)
@@ -36,7 +38,7 @@ data LispError = NumArgs Integer [LispVal]
                  | UnboundVar String String
                  | Default String
 
-                  
+
 data Unpacker = forall a. Eq a => AnyUnpacker (LispVal -> ThrowsError a)
 
 
@@ -73,26 +75,6 @@ parseAtom = do
 parseNumber :: Parser LispVal
 -- parseNumber needs to check for both Float and Int
 parseNumber = do many1 digit >>= \x -> return (Number . read $ x)
-
--- parsePrefixedNumber :: Parser LispVal
--- parsePrefixedNumber = do
---             _ <- oneOf "#"
---             base <- oneOf "bodx"
---             digits <- many1 digit
---             return $ Number $ val base digits
---                 where
---                 val :: Char -> String -> Integer
---                 val base digits 
---                         | Just (x,_) <- maybeOutput = x
---                         | otherwise = error "Invalid number format"
---                         where
---                             maybeOutput = 
---                                 case base of  
---                                     'o' ->  listToMaybe $ readOct digits
---                                     'x' ->  listToMaybe $ readHex digits
---                                     'b' ->  listToMaybe $ readBin digits
---                                     _ ->  read digits
-
 
 parseFloat :: Parser LispVal
 parseFloat = do
@@ -144,7 +126,7 @@ eqv [(Number arg1), (Number arg2)]         = return $ Bool $ arg1 == arg2
 eqv [(String arg1), (String arg2)]         = return $ Bool $ arg1 == arg2
 eqv [(Atom arg1), (Atom arg2)]             = return $ Bool $ arg1 == arg2
 eqv [(DottedList xs x), (DottedList ys y)] = eqv [List $ xs ++ [x], List $ ys ++ [y]]
-eqv [List arg1, List arg2]             = return $ Bool $ (length arg1 == length arg2) && 
+eqv [List arg1, List arg2]             = return $ Bool $ (length arg1 == length arg2) &&
                                                              all eqvPair (zip arg1 arg2)
                                                              where eqvPair (x1, x2) = case eqv [x1,x2] of
                                                                      Left err -> False
@@ -198,7 +180,7 @@ apply (Func params varargs body closure) args =
             bindVarArgs arg env = case arg of
                 Just argName -> liftIO $ bindVars env [(argName, List $ remainingArgs)]
                 Nothing -> return env
-                
+
 apply (IOFunc func) args = func args
 
 primitiveBindings :: IO Env
@@ -277,7 +259,7 @@ qsortiz [badArg] = throwError $ TypeMismatch "list of numbers" badArg
 qsortiz badArg                   = throwError $ TypeMismatch "list" $ String "bad"
 
 unpackNum :: LispVal -> ThrowsError Integer
-unpackNum (Number n) = return n   
+unpackNum (Number n) = return n
 unpackNum (String n) = let parsed = reads n :: [(Integer, String)] in
   if null parsed
   then throwError $ TypeMismatch "number" $ String n
@@ -338,12 +320,12 @@ eval env (List (Atom "lambda" : DottedList params varargs : body)) =
 eval env (List (Atom "lambda" : varargs@(Atom _) : body)) =
      makeVarArgs varargs env [] body
 
-     
+
 eval env (List (function : args)) = do
      func <- eval env function
      argVals <- mapM (eval env) args
      apply func argVals
-     
+
 eval env badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
 
@@ -375,7 +357,7 @@ equal [arg1, arg2] = do
                      [AnyUnpacker unpackNum, AnyUnpacker unpackStr, AnyUnpacker unpackBool]
   eqvEquals <- eqv [arg1, arg2]
   return $ Bool $ (primitiveEquals || let (Bool x) = eqvEquals in x)
-equal badArg = throwError $ NumArgs 2 badArg                                  
+equal badArg = throwError $ NumArgs 2 badArg
 
 extractValue :: ThrowsError a -> a
 extractValue (Right val) = val
@@ -463,8 +445,8 @@ runIOThrows action = runExceptT (trapError action) >>= return . extractValue
 
 isBound :: Env -> String -> IO Bool -- check if a var is already bound
 isBound envRef var = readIORef envRef >>= return . maybe False (const True) . lookup var
-  
-  
+
+
 liftThrows :: ThrowsError a -> IOThrowsError a
 liftThrows (Left err) = throwError err
 liftThrows (Right val) = return val
@@ -501,15 +483,15 @@ bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
      where extendEnv bindings env = liftM (++ env) (mapM addBinding bindings)
            addBinding (var, value) = do ref <- newIORef value
                                         return (var, ref)
-             
+
 -- runRepl :: IO ()
 -- runRepl = until_ (== "quit") (readPrompt "Evalyn>>> ") evalAndPrint
 
 
 runOne :: [String] -> IO ()
 runOne args = do
-    env <- primitiveBindings >>= flip bindVars [("args", List $ map String $ drop 1 args)] 
-    (runIOThrows $ liftM show $ eval env (List [Atom "load", String (args !! 0)])) 
+    env <- primitiveBindings >>= flip bindVars [("args", List $ map String $ drop 1 args)]
+    (runIOThrows $ liftM show $ eval env (List [Atom "load", String (args !! 0)]))
         >>= hPutStrLn stderr
 
 runRepl :: IO ()

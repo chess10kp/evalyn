@@ -67,7 +67,7 @@ executable wyas
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.16.4.0
+    build-depends:    base>=4.16.4.0, parsec, mtl
 
     -- Directories containing source files.
     hs-source-dirs:   app
