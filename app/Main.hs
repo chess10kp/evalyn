@@ -1,11 +1,18 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE LambdaCase #-}
 -- to create heterogeneous typeclasses
 module Main where
+
+import Control.Monad (liftM)
+import Control.Monad.IO.Class (liftIO)
 
 import System.IO
 import Data.IORef
 import Text.ParserCombinators.Parsec hiding (spaces)
-import System.Environment (getArgs)
+import System.Environment (getArgs, getEnv, getEnvironment, setEnv, unsetEnv, getProgName)
+import System.Directory (getCurrentDirectory, setCurrentDirectory, getHomeDirectory)
+import System.Process (readCreateProcess, shell, system)
+import System.Exit (ExitCode(ExitSuccess, ExitFailure))
 import Control.Monad.Except
 
 type Env = IORef [(String, IORef LispVal)]
@@ -399,7 +406,18 @@ ioPrimitives = [("apply", applyProc),
                 ("read", readProc),
                 ("write", writeProc),
                 ("read-contents", readContents),
-                ("read-all", readAll)]
+                ("read-all", readAll),
+                ("get-env", getEnvProc),
+                ("get-environment", getEnvironmentProc),
+                ("set-env", setEnvProc),
+                ("unset-env", unsetEnvProc),
+                ("get-args", getArgsProc),
+                ("get-prog-name", getProgNameProc),
+                ("current-directory", getCurrentDirectoryProc),
+                ("set-current-directory", setCurrentDirectoryProc),
+                ("get-home", getHomeDirectoryProc),
+                ("system", systemProc),
+                ("system-read", systemReadProc)]
 
 applyProc :: [LispVal] -> IOThrowsError LispVal
 applyProc [func, List args] = apply func args
@@ -428,6 +446,62 @@ load filename = (liftIO $ readFile filename) >>= liftThrows . readExprList
 
 readAll :: [LispVal] -> IOThrowsError LispVal
 readAll [String filename] = liftM List $ load filename
+
+getEnvProc :: [LispVal] -> IOThrowsError LispVal
+getEnvProc [String var] = do
+  env <- liftIO getEnvironment
+  case lookup var env of
+    Just val -> return $ String val
+    Nothing -> return $ String ""
+getEnvProc _ = return $ String ""
+
+getEnvironmentProc :: [LispVal] -> IOThrowsError LispVal
+getEnvironmentProc [] = do
+  env <- liftIO getEnvironment
+  return $ List $ map (\(k, v) -> List [String k, String v]) env
+getEnvironmentProc _ = return $ List []
+
+setEnvProc :: [LispVal] -> IOThrowsError LispVal
+setEnvProc [String var, String val] = liftIO (setEnv var val) >> (return $ Bool True)
+setEnvProc _ = return $ Bool False
+
+unsetEnvProc :: [LispVal] -> IOThrowsError LispVal
+unsetEnvProc [String var] = liftIO (unsetEnv var) >> (return $ Bool True)
+unsetEnvProc _ = return $ Bool False
+
+getArgsProc :: [LispVal] -> IOThrowsError LispVal
+getArgsProc [] = liftM (List . map String) $ liftIO getArgs
+getArgsProc _ = return $ List []
+
+getProgNameProc :: [LispVal] -> IOThrowsError LispVal
+getProgNameProc [] = liftM String $ liftIO getProgName
+getProgNameProc _ = return $ String ""
+
+getCurrentDirectoryProc :: [LispVal] -> IOThrowsError LispVal
+getCurrentDirectoryProc [] = liftM String $ liftIO getCurrentDirectory
+getCurrentDirectoryProc _ = return $ String ""
+
+setCurrentDirectoryProc :: [LispVal] -> IOThrowsError LispVal
+setCurrentDirectoryProc [String path] = (liftIO $ setCurrentDirectory path) >> (return $ Bool True)
+setCurrentDirectoryProc _ = return $ Bool False
+
+getHomeDirectoryProc :: [LispVal] -> IOThrowsError LispVal
+getHomeDirectoryProc [] = liftM String $ liftIO getHomeDirectory
+getHomeDirectoryProc _ = return $ String ""
+
+systemProc :: [LispVal] -> IOThrowsError LispVal
+systemProc [String cmd] = do
+  exitCode <- liftIO $ system cmd
+  case exitCode of
+    ExitSuccess -> return $ Number 0
+    ExitFailure code -> return $ Number $ toInteger code
+systemProc _ = return $ Number (-1)
+
+systemReadProc :: [LispVal] -> IOThrowsError LispVal
+systemReadProc [String cmd] = do
+  output <- liftIO $ readCreateProcess (shell cmd) ""
+  return $ String output
+systemReadProc _ = return $ String ""
 
 
 flushStr :: String -> IO ()
